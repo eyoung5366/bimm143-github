@@ -1,0 +1,39 @@
+---
+title: "Lab-18-MiniAssn"
+author: "Ethan"
+date: "3/9/2023"
+output: html_document
+---
+
+## Cancer Mini Assignment
+
+Working with liver hepatocellular carcinomas
+
+# Exploring a cancer sequencing data portal
+Q. How many cancer samples are included in the dataset? 372
+Q. Which is the most mutated gene? TP53
+Q. Which is the most common treatment undergone by patients? Sorafenib
+
+```{r}
+# Install required packages
+if (!require("BiocManager")){
+    install.packages("BiocManager")
+}
+if (!require("maftools")){
+    BiocManager::install("maftools")
+}
+if (!require("BSgenome.Hsapiens.UCSC.hg19")){         # reference genome needed to
+BiocManager::install("BSgenome.Hsapiens.UCSC.hg19")   # generate mutational matrices
+}
+
+# Read maf file
+library(maftools)
+coad = read.maf('data/coadread_tcga_pan_can_atlas_2018/data_mutations.txt')
+
+# Generate mutational matrix (SBS96 context)
+mm_coad = trinucleotideMatrix(maf = coad, prefix = 'chr', add = TRUE,
+                              ref_genome = "BSgenome.Hsapiens.UCSC.hg19")
+mm_coad = t(mm_coad$nmf_matrix)
+```
+
+
