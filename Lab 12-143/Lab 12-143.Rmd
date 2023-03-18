@@ -1,0 +1,220 @@
+---
+title: "Lab 12-143"
+author: "Ethan"
+date: "2/16/2023"
+output: pdf_document
+---
+
+New Installations:
+install.packages("BiocManager")
+BiocManager::install("DESeq2")
+
+```{r}
+# Call in our new packages
+library(BiocManager)
+library(DESeq2)
+```
+
+```{r}
+# Read csv file into variables
+counts <- read.csv("airway_scaledcounts.csv", row.names=1)
+metadata <-  read.csv("airway_metadata.csv")
+
+# See what they look like
+head(counts)
+head(metadata)
+```
+
+Q1. How many genes are in this dataset?
+38694 genes
+```{r}
+# nRow gives us gene count
+nrow(counts)
+```
+
+Q2. How many ‘control’ cell lines do we have? 
+4 control cell lines
+```{r}
+# table to count and categorize control vs treated cell dex
+table(metadata$dex)
+```
+
+
+Let's make sure that the id column of the metadata match the order of the columns in countData.
+
+```{r}
+metadata$id == colnames(counts)
+colnames(counts)
+```
+
+# Analysis by hand
+
+```{r}
+metadata
+```
+
+Let's first extract our cunts for control samples
+
+```{r}
+# Separate the controls by using a t/f vector and then applying it to metadata$id
+# Then access counts limited by metadata$id
+control.tf <- metadata$dex=="control"
+control.id <- metadata$id[control.tf]
+control.counts <- counts[,control.id]
+head(control.counts)
+```
+
+I want a single summary counts value for each gene in the control experiments. I will start by taking the average.
+
+```{r}
+# Get the average with apply (1 means rows, 2 means columns)
+# 'rowMeans(control.counts)' also works
+control.mean <- apply(control.counts,1,mean)
+```
+
+Q3. How would you make the above code in either approach more robust?
+The means in the example from the lab walkthrough uses "/4" which isn't applicable to all data sets. Our code above already takes into account differently sized data frames.
+
+Q4. Follow the same procedure for the treated samples (i.e. calculate the mean per gene across drug treated samples and assign to a labeled vector called treated.mean)
+
+```{r}
+# Same logic as above (instead of control it's now treated)
+treated.tf <- metadata$dex=="treated"
+treated.id <- metadata$id[treated.tf]
+treated.counts <- counts[,treated.id]
+head(treated.counts)
+
+# Find the average
+treated.mean <- apply(treated.counts,1,mean)
+head(treated.mean)
+```
+
+make a plot to see progress
+
+```{r}
+# Turn out means into a dataframe
+meancounts <- data.frame(control.mean, treated.mean)
+```
+
+Q5 (a). Create a scatter plot showing the mean of the treated samples against the mean of the control samples. Your plot should look something like the following.
+```{r}
+# Normal base R function plot
+plot(meancounts$control.mean,meancounts$treated.mean)
+```
+
+
+Q5 (b).You could also use the ggplot2 package to make this figure producing the plot below. What geom_?() function would you use for this plot?
+
+geom_point
+
+Q6. Try plotting both axes on a log scale. What is the argument to plot() that allows you to do this?
+
+```{r}
+# Adding a log argument on both x and y axis
+plot(meancounts$control.mean,meancounts$treated.mean,log="xy")
+```
+This screams for a log transformation so we can see our data
+
+Most usefule and straightforward to understand this is a log2 transformation. 0 means 0 deviation = drug didn't work
+
+```{r}
+log2(20/20)
+log2(40/20)
+```
+log2 = 1 then 1 means that it doubled
+the opposite is true. -1 means that it was halved
+
+Add a "log2 fold-change"
+```{r}
+# Make a new column in the df which is the log2 transform
+meancounts$log2fc <- log2(meancounts$treated.mean / meancounts$control.mean)
+head(meancounts)
+```
+
+Note the NaN in the log2fc column. We need to get ride of the genes where we have no count data as taking the log2 of these 0 counts does not tell us anything.
+
+```{r}
+head(meancounts==0)
+
+# Add the rows together and check if it equals 0
+noZero<- rowSums(meancounts[,1:2]==0)==0
+mycounts <- meancounts[noZero,]
+head(mycounts)
+```
+Q7. What is the purpose of the arr.ind argument in the which() function call above? Why would we then take the first column of the output and need to call the unique() function?
+We never used this function
+
+For the next 2 questions. The answer is different from the file because we used >= instead of only >.
+
+Q8. How many genes are upregulated at the log2fc level of +2?
+314 genes are upregulated at a level greater than/equal to +2
+```{r}
+sum(mycounts$log2fc >= +2)
+```
+Q9. How many genes are downregulated at the log2fc level of -2?
+485 genes are downregulated at a level less than/equal to -2
+```{r}
+sum(mycounts$log2fc <= -2)
+```
+
+Q10. Do you trust these results?
+No. We only calculated the differences between the averages. We haven't conducted a significance test.
+
+# DEseq2 Analysis
+DEseq2 has already been accessed above (first code chunk)
+
+```{r}
+#| message: false
+library(DESeq2)
+```
+
+Like most bioconductor package, DEseq2 wants it's input and output in a very specific format.
+
+```{r}
+# Using DEseq analysis. Requires 3 inputs shown below
+dds <- DESeqDataSetFromMatrix(countData = counts,
+                       colData = metadata,
+                       design = ~dex)
+dds <- DESeq(dds)
+dds
+```
+
+```{r}
+res <- results(dds)
+res
+```
+# Volcano Plots
+
+A major summary figure of this type of analysis is called a volcano plot.
+
+```{r}
+plot( res$log2FoldChange, res$padj)
+```
+Improve this plot by taking log of that p-value
+```{r}
+# Added the -log() to make the graph upright
+plot(res$log2FoldChange, -log(res$padj))
+```
+
+Now, we want to make a colored ver.
+
+```{r}
+# Setup our custom point color vector 
+# Replicate (rep) "gray" once for every result we have
+mycols <- rep("gray", nrow(res))
+# Set limits above 2 (abs make sure its on both sides)
+# Shows "good" log2fc level changes (which we set as 2)
+mycols[ abs(res$log2FoldChange) > 2 ]  <- "red" 
+
+# Makes the points with both good p-value and "good" log2fc
+inds <- (res$padj < 0.01) & (abs(res$log2FoldChange) > 2 )
+mycols[ inds ] <- "blue"
+
+# Volcano plot with custom colors 
+plot( res$log2FoldChange,  -log(res$padj), 
+ col=mycols, ylab="-Log(P-value)", xlab="Log2(FoldChange)" )
+
+# Cut-off lines
+abline(v=c(-2,2), col="gray", lty=2)
+abline(h=-log(0.1), col="gray", lty=2)
+```
